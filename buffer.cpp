@@ -17,18 +17,18 @@
 namespace badgerdb { 
 
 BufMgr::BufMgr(std::uint32_t bufs)
-	: numBufs(bufs) {
-	bufDescTable = new BufDesc[bufs];
+  : numBufs(bufs) {
+  bufDescTable = new BufDesc[bufs];
 
   for (FrameId i = 0; i < bufs; i++) 
   {
-  	bufDescTable[i].frameNo = i;
-  	bufDescTable[i].valid = false;
+    bufDescTable[i].frameNo = i;
+    bufDescTable[i].valid = false;
   }
 
   bufPool = new Page[bufs];
 
-	int htsize = ((((int) (bufs * 1.2))*2)/2)+1;
+  int htsize = ((((int) (bufs * 1.2))*2)/2)+1;
   hashTable = new BufHashTbl (htsize);  // allocate the buffer hash table
 
   clockHand = bufs - 1;
@@ -92,7 +92,7 @@ void BufMgr::allocBuf(FrameId & frame)
     }
 }
 
-	
+  
 void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
 {
     FrameId temp;
@@ -143,18 +143,18 @@ void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty)
 void BufMgr::flushFile(const File* file) 
 {
     // go through the frame array
-    for(unsigned int i = 0; i < numBufs; i++) {
+    for(std::uint32_t i = 0; i < numBufs; i++) {
         BufDesc temp = bufDescTable[i];
         // check whether this frame's page belong to the given file
         if(temp.file == file) {
             if(temp.dirty == true) {
                 // flush the page into the disk if it is dirty
                 // and 
-                (*file).writePage(bufPool[i]);
+                file.writePage(bufPool[i]);
                 temp.dirty = false;
             }
             // remove page from the hashtable
-            hashTable.remove(file,tmep.pageNo);
+            hashTable->remove(file,temp.pageNo);
             // clear the bufdesc
             temp.Clear();
         }
@@ -195,19 +195,19 @@ void BufMgr::disposePage(File* file, const PageId PageNo)
 void BufMgr::printSelf(void) 
 {
   BufDesc* tmpbuf;
-	int validFrames = 0;
+  int validFrames = 0;
   
   for (std::uint32_t i = 0; i < numBufs; i++)
-	{
-  	tmpbuf = &(bufDescTable[i]);
-		std::cout << "FrameNo:" << i << " ";
-		tmpbuf->Print();
+  {
+    tmpbuf = &(bufDescTable[i]);
+    std::cout << "FrameNo:" << i << " ";
+    tmpbuf->Print();
 
-  	if (tmpbuf->valid == true)
-    	validFrames++;
+    if (tmpbuf->valid == true)
+      validFrames++;
   }
 
-	std::cout << "Total Number of Valid Frames:" << validFrames << "\n";
+  std::cout << "Total Number of Valid Frames:" << validFrames << "\n";
 }
 
 }
