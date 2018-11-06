@@ -36,16 +36,16 @@ BufMgr::BufMgr(std::uint32_t bufs)
 
 
 BufMgr::~BufMgr() {
-  for (int i = 0; i < numBufs; i++){//flush dirty pages into files
+  for (std::uint32_t i = 0; i < numBufs; i++){//flush dirty pages into files
     if (bufDescTable[i].dirty == true){
-      (*(bufDescTable[i].file)).writePage(bufPool[i])
+      (*(bufDescTable[i].file)).writePage(bufPool[i]);
     }
   }
 
   //deallocate buf poll, buf desctable and hash table
   bufPool = NULL;
   bufDescTable = NULL;
-  hashTable.~BufHashTbl();
+  hashTable->~BufHashTbl();
 }
 
 void BufMgr::advanceClock()
@@ -58,12 +58,12 @@ void BufMgr::allocBuf(FrameId & frame)
 {
     // go through all the frames to check
     // whether there is a bufferexceed exception
-    pinned = true;
-    for (int i = 0; i < numBufs; i++)
+    bool pinned = true;
+    for (std::uint32_t i = 0; i < numBufs; i++)
       if (bufDescTable[i].pinCnt == 0)
         pinned = false;
     
-    if (pinned) throw BufferExceededException;
+    if (pinned) throw BufferExceededException();
     
     //if there is no exception
     while (true) {
@@ -163,13 +163,13 @@ void BufMgr::flushFile(const File* file)
 void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page) 
 {
   //allocate a new page in the file
-  badgerdb::Page new_page = (*file).allocaPage();
+  badgerdb::Page new_page = (*file).allocatePage();
   //obtain next frame
-  allocBuf();
+  allocBuf(clockHand);
   //add the relation to hash table
-  hashTable.insert(file, pageNo, clockHand);
+  hashTable->insert(file, pageNo, clockHand);
   //allocate the page to the frame
-  bufDescTable.set(file, pageNo);
+  bufDescTable[clockHand].Set(file, pageNo);
   //return the new page's page number
   pageNo = new_page.page_number();
   //return the pointer to the allocated page
@@ -178,13 +178,13 @@ void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page)
 
 void BufMgr::disposePage(File* file, const PageId PageNo)
 {
-    for (int i = 0; i < numBufs; i++){
+    for (std::uint32_t i = 0; i < numBufs; i++){
       //check if the page is in any frame
-      if (bufDescTable[i].pageNo = pageNo) {
+      if (bufDescTable[i].pageNo == PageNo) {
         //clear the frame with the page
         bufDescTable[i].Clear();
         //remove the relation in the hash table
-        hashTable.remove(file, PageNo);
+        hashTable->remove(file, PageNo);
       }
     }
     //delete the page from file
