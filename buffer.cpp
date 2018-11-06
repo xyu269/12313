@@ -131,7 +131,7 @@ void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty)
     // if this page is in the hash table
     BufDesc b = bufDescTable[temp];
     if (b.pinCnt == 0)
-        throw PageNotPinnedException((*file).filename, pageNo, temp);
+        throw PageNotPinnedException((*file).filename(), pageNo, temp);
     else {
         // if this page's pin is bigger than zero
         b.pinCnt = b.pinCnt - 1;
@@ -150,7 +150,7 @@ void BufMgr::flushFile(const File* file)
             if(temp.dirty == true) {
                 // flush the page into the disk if it is dirty
                 // and 
-                file.writePage(bufPool[i]);
+                (*(temp.file)).writePage(bufPool[i]);
                 temp.dirty = false;
             }
             // remove page from the hashtable
