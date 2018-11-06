@@ -36,12 +36,15 @@ BufMgr::BufMgr(std::uint32_t bufs)
 
 
 BufMgr::~BufMgr() {
+
   for (std::uint32_t i = 0; i < numBufs; i++){//flush dirty pages into files
     if (bufDescTable[i].dirty == true){
-      (*(bufDescTable[i].file)).writePage(bufPool[i]);
+      if (File::isOpen(bufDescTable[i].file->filename())){
+        (*(bufDescTable[i].file)).writePage(bufPool[i]);
+        bufDescTable[i].dirty = false;
+      } 
     }
   }
-
   //deallocate buf poll, buf desctable and hash table
   bufPool = NULL;
   bufDescTable = NULL;
@@ -56,18 +59,17 @@ void BufMgr::advanceClock()
 
 void BufMgr::allocBuf(FrameId & frame) 
 {
-    std::cout<<"allocBUf start \n";
     // go through all the frames to check
     // whether there is a bufferexceed exception
     bool pinned = true;
     for (std::uint32_t i = 0; i < numBufs; i++)
       if (bufDescTable[i].pinCnt == 0)
         pinned = false;
-    
     if (pinned) throw BufferExceededException();
-     std::cout<<"pass pinned \n";
+     // std::cout<<"pass pinned \n";
     //if there is no exception
     while (true) {
+      advanceClock();
       // if there is no valid page in frame
       if (!bufDescTable[frame].valid) {
         break;
@@ -85,47 +87,48 @@ void BufMgr::allocBuf(FrameId & frame)
             if (bufDescTable[frame].dirty){
               (*(bufDescTable[frame].file)).writePage(bufPool[frame]);
             }
+            try {
+              FrameId temp;
+              hashTable->lookup(bufDescTable[frame].file, bufDescTable[frame].pageNo, temp);
+              hashTable->remove(bufDescTable[frame].file, bufDescTable[frame].pageNo);
+            } catch(HashNotFoundException e1){}
             break;
           }
         }
       }
-      advanceClock();
+      
     }
-    std::cout<<"allocBUf end \n";
 }
 
   
 void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
 {
-    std::cout<<"readPage start \n";
-    FrameId temp;
-    // look up file and pageid in the hashtable
+
+    FrameId temp = 0;
     try {
+        // look up file and pageid in the hashtable
         hashTable->lookup(file, pageNo, temp);
-//	std::cout << temp <<"\n";
-    } catch(HashNotFoundException e1) {
+        // if it is in the buffer pool
+        bufDescTable[temp].refbit = true;
+        bufDescTable[temp].pinCnt = bufDescTable[temp].pinCnt + 1;
+        page = &(bufPool[temp]);
+
+    } catch(HashNotFoundException& e1) {
         // if it is not in the buffer pool
         allocBuf(clockHand);
         // read page from file and insert it into buffer pool
-        bufPool[clockHand] = (*file).readPage(pageNo);
+        bufPool[clockHand] = file->readPage(pageNo);
         // insert it into hashtable
         hashTable->insert(file, pageNo, clockHand);
         // invoke set()
         bufDescTable[clockHand].Set(file, pageNo);
         page = &(bufPool[clockHand]);
-        return;
     }
-    // if it is in the buffer pool
-    bufDescTable[temp].refbit = true;
-    bufDescTable[temp].pinCnt = bufDescTable[temp].pinCnt + 1;
-    page = &(bufPool[temp]);
-    std::cout<<"allocBUf end \n";
-}
 
+}
 
 void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty) 
 {
-    std::cout<<"uniPinPage start \n";
     FrameId temp;
     // check whether this page is in the hashtable
     try {
@@ -135,8 +138,8 @@ void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty)
         return;
     }
     // if this page is in the hash table
-//    BufDesc *b = &(bufDescTable[temp]);
     if (bufDescTable[temp].pinCnt == 0)
+        //if the page is not pinned, throw page not pinned exception
         throw PageNotPinnedException((*file).filename(), pageNo, temp);
     else {
         // if this page's pin is bigger than zero
@@ -144,31 +147,26 @@ void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty)
         if(dirty == true)
             bufDescTable[temp].dirty = true;
     }
-    std::cout<<"UniPinPage end \n";
 }
 
 void BufMgr::flushFile(const File* file) 
 {
-    std::cout<<"flushfile start \n";
     // go through the frame array
     for(std::uint32_t i = 0; i < numBufs; i++) {
         BufDesc temp = bufDescTable[i];
-	std::cout<<temp.pinCnt<<"\n";
-	std::cout<<(*(temp.file)).filename()<<"\n";
-	std::cout<<(*file).filename()<<"\n";
         // check whether this frame's page belong to the given file
         if((*(temp.file)).filename().compare((*file).filename()) == 0) {
-	std::cout<<temp.pinCnt<<"\n";
-            if(temp.pinCnt > 0) { 
-		std::cout<<temp.pinCnt<<"\n";
-	        throw PagePinnedException((*file).filename(),temp.pageNo, temp.frameNo);
-	    }
-	    if(temp.valid == false) {
+            if(temp.pinCnt > 0) {
+            //if the the page is pinned, throw page pinned exception
+                throw PagePinnedException((*file).filename(),temp.pageNo, temp.frameNo);
+            }
+            if(temp.valid == false) {
+            //if the frame is not valid, throw badbuffer exception
                 throw BadBufferException(temp.frameNo, temp.dirty, temp.valid, temp.refbit);
-	    }
+            }
             if(temp.dirty == true) {
                 // flush the page into the disk if it is dirty
-                // and 
+                // and set the frame to not clean
                 (*(temp.file)).writePage(bufPool[i]);
                 temp.dirty = false;
             }
@@ -178,42 +176,40 @@ void BufMgr::flushFile(const File* file)
             temp.Clear();
         }
     }
-    std::cout<<"flushfile end \n";
 }
 
 void BufMgr::allocPage(File* file, PageId &pageNo, Page*& page) 
 {
-  std::cout<<"allocPage start \n";
   //allocate a new page in the file
-  badgerdb::Page new_page = (*file).allocatePage();
-  //obtain next frame
-  allocBuf(clockHand);
-  //add the relation to hash table
-  hashTable->insert(file, new_page.page_number(), clockHand);
-  //allocate the page to the frame
-  bufDescTable[clockHand].Set(file, pageNo);
+  badgerdb::Page new_page = file->allocatePage();
   //return the new page's page number
   pageNo = new_page.page_number();
+  //obtain next frame
+  allocBuf(clockHand);
+  //update the new page into the frame
+  bufPool[clockHand] = new_page;
+  //add the relation to hash table
+  hashTable->insert(file, pageNo, clockHand);
+  //allocate the page to the frame
+  bufDescTable[clockHand].Set(file, pageNo);
   //return the pointer to the allocated page
   page = &(bufPool[clockHand]);
-  std::cout<<"allocPage end \n";
 }
 
 void BufMgr::disposePage(File* file, const PageId PageNo)
 {
-	std::cout<<"disposePage start \n";
-    for (std::uint32_t i = 0; i < numBufs; i++){
-      //check if the page is in any frame
-      if (bufDescTable[i].pageNo == PageNo) {
-        //clear the frame with the page
-        bufDescTable[i].Clear();
-        //remove the relation in the hash table
-        hashTable->remove(file, PageNo);
-      }
-    }
+    FrameId frameNo;
+    //lookup the frame where the page is in
+    hashTable->lookup(file, PageNo, frameNo);
+    //if the page is pinned, throw exception
+    if (bufDescTable[frameNo].pinCnt > 0)
+      throw PagePinnedException(file->filename(), PageNo, frameNo);
+    //remove the relation in the hash table
+    hashTable->remove(file,PageNo);
+    //clear the frame
+    bufDescTable[frameNo].Clear();
     //delete the page from file
     (*file).deletePage(PageNo);
-    std::cout<<"disposePage \n";
 }
 
 void BufMgr::printSelf(void) 
