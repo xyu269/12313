@@ -98,17 +98,17 @@ void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
     FrameId temp;
     // look up file and pageid in the hashtable
     try {
-        hashTable.lookup(file, pageNo, &temp);
+        hashTable->lookup(file, pageNo, temp);
     } catch(HashNotFoundException e1) {
         // if it is not in the buffer pool
-        allocBuf(clokhand);
+        allocBuf(clockHand);
         // read page from file and insert it into buffer pool
         bufPool[clockHand] = (*file).readPage(pageNo);
         // insert it into hashtable
-        hashTable.insert(file, pageNo, clockHand);
+        hashTable->insert(file, pageNo, clockHand);
         // invoke set()
         bufDescTable[clockHand].Set(file, pageNo);
-        page = &（bufPool[clockHand]）;
+        page = &(bufPool[clockHand]);
         return;
     }
     // if it is in the buffer pool
@@ -120,17 +120,18 @@ void BufMgr::readPage(File* file, const PageId pageNo, Page*& page)
 
 void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty) 
 {
+    FrameId temp;
     // check whether this page is in the hashtable
     try {
-        hashTable.lookup(file, pageNo, &temp);
+        hashTable->lookup(file, pageNo, temp);
     } catch(HashNotFoundException e1) {
         // if this page is not in the hash table
         return;
     }
     // if this page is in the hash table
-    bufDesc b = bufDescTable[temp];
+    BufDesc b = bufDescTable[temp];
     if (b.pinCnt == 0)
-        throw PageNotPinnedException;
+        throw PageNotPinnedException((*file).filename, pageNo, temp);
     else {
         // if this page's pin is bigger than zero
         b.pinCnt = b.pinCnt - 1;
@@ -142,7 +143,7 @@ void BufMgr::unPinPage(File* file, const PageId pageNo, const bool dirty)
 void BufMgr::flushFile(const File* file) 
 {
     // go through the frame array
-    for(int i = 0; i < numBufs; i++) {
+    for(unsigned int i = 0; i < numBufs; i++) {
         BufDesc temp = bufDescTable[i];
         // check whether this frame's page belong to the given file
         if(temp.file == file) {
